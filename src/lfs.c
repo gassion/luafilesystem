@@ -1,6 +1,6 @@
 /*
 ** LuaFileSystem
-** Copyright Kepler Project 2004-2006 (http://www.keplerproject.org/luafilesystem)
+** Copyright Kepler Project 2004-2007 (http://www.keplerproject.org/luafilesystem)
 **
 ** File system manipulation library.
 ** This library offers these functions:
@@ -11,10 +11,11 @@
 **   lfs.lock (fh, mode)
 **   lfs.mkdir (path)
 **   lfs.rmdir (path)
+**   lfs.symlinkattributes (filepath [, attributename]) -- thanks to Sam Roberts
 **   lfs.touch (filepath [, atime [, mtime]])
 **   lfs.unlock (fh)
 **
-** $Id: lfs.c,v 1.32.2.1 2007/05/08 21:35:10 carregal Exp $
+** $Id: lfs.c,v 1.42 2007/10/26 21:01:07 carregal Exp $
 */
 
 #include <errno.h>
@@ -254,6 +255,8 @@ static int remove_dir (lua_State *L) {
 static int dir_iter (lua_State *L) {
 #ifdef _WIN32
 	struct _finddata_t c_file;
+#else
+	struct dirent *entry;
 #endif
 	dir_data *d = (dir_data *)lua_touserdata (L, lua_upvalueindex (1));
 	luaL_argcheck (L, !d->closed, 1, "closed directory");
@@ -279,7 +282,6 @@ static int dir_iter (lua_State *L) {
 		}
 	}
 #else
-	struct dirent *entry;
 	if ((entry = readdir (d->dir)) != NULL) {
 		lua_pushstring (L, entry->d_name);
 		return 1;
@@ -510,14 +512,14 @@ struct _stat_members members[] = {
 };
 
 /*
-** Get file information
+** Get file or symbolic link information
 */
-static int file_info (lua_State *L) {
+static int _file_info_ (lua_State *L, int (*st)(const char*, struct stat*)) {
 	int i;
 	struct stat info;
 	const char *file = luaL_checkstring (L, 1);
 
-	if (stat(file, &info)) {
+	if (st(file, &info)) {
 		lua_pushnil (L);
 		lua_pushfstring (L, "cannot obtain information from file `%s'", file);
 		return 2;
@@ -527,6 +529,7 @@ static int file_info (lua_State *L) {
 		const char *member = lua_tostring (L, 2);
 		if (strcmp (member, "mode") == 0) v = 0;
 #ifndef _WIN32
+		else if (strcmp (member, "blocks")  == 0) v = 11;
 		else if (strcmp (member, "blksize") == 0) v = 12;
 #endif
 		else /* look for member */
@@ -550,6 +553,24 @@ static int file_info (lua_State *L) {
 
 
 /*
+** Get file information using stat.
+*/
+static int file_info (lua_State *L) {
+	return _file_info_ (L, stat);
+}
+
+
+/*
+** Get symbolic link information using lstat.
+*/
+#ifndef _WIN32
+static int link_info (lua_State *L) {
+	return _file_info_ (L, lstat);
+}
+#endif
+
+
+/*
 ** Assumes the table is on top of the stack.
 */
 static void set_info (lua_State *L) {
@@ -560,7 +581,7 @@ static void set_info (lua_State *L) {
 	lua_pushliteral (L, "LuaFileSystem is a Lua library developed to complement the set of functions related to file systems offered by the standard Lua distribution");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_VERSION");
-	lua_pushliteral (L, "LuaFileSystem 1.2.1");
+	lua_pushliteral (L, "LuaFileSystem 1.3.0");
 	lua_settable (L, -3);
 }
 
@@ -573,6 +594,9 @@ static const struct luaL_reg fslib[] = {
 	{"lock", file_lock},
 	{"mkdir", make_dir},
 	{"rmdir", remove_dir},
+#ifndef _WIN32
+	{"symlinkattributes", link_info},
+#endif
 	{"touch", file_utime},
 	{"unlock", file_unlock},
 	{NULL, NULL},
@@ -580,7 +604,7 @@ static const struct luaL_reg fslib[] = {
 
 int luaopen_lfs (lua_State *L) {
 	dir_create_meta (L);
-	luaL_openlib (L, "lfs", fslib, 0);
+	luaL_register (L, "lfs", fslib);
 	set_info (L);
 	return 1;
 }

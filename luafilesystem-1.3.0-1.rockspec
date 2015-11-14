@@ -1,12 +1,12 @@
 package = "LuaFileSystem"
-version = "1.2.1-1"
+version = "1.3.0-1"
 -- LuaDist source
 source = {
-  tag = "1.2.1-1",
+  tag = "1.3.0-1",
   url = "git://github.com/ld-test/luafilesystem.git"
 }
 -- source = {
---    url = "http://luaforge.net/frs/download.php/2381/luafilesystem-1.2.1.tar.gz"
+--    url = "http://luaforge.net/frs/download.php/2679/luafilesystem-1.3.0.tar.gz"
 -- }
 description = {
    summary = "File System Library for the Lua Programming Language",
