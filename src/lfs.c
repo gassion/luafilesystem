@@ -16,8 +16,16 @@
 **   lfs.touch (filepath [, atime [, mtime]])
 **   lfs.unlock (fh)
 **
-** $Id: lfs.c,v 1.53 2008/05/07 19:06:37 carregal Exp $
+** $Id: lfs.c,v 1.56 2009/02/03 22:05:48 carregal Exp $
 */
+
+#ifndef _WIN32
+#ifndef _AIX
+#define _FILE_OFFSET_BITS 64 /* Linux, Solaris and HP-UX */
+#else
+#define _LARGE_FILES 1 /* AIX */
+#endif
+#endif
 
 #define _LARGEFILE64_SOURCE
 
@@ -32,7 +40,11 @@
 #include <direct.h>
 #include <io.h>
 #include <sys/locking.h>
-#include <sys/utime.h>
+#ifdef __BORLANDC__
+ #include <utime.h>
+#else
+ #include <sys/utime.h>
+#endif
 #include <fcntl.h>
 #else
 #include <unistd.h>
@@ -74,23 +86,22 @@ typedef struct dir_data {
 
 
 #ifdef _WIN32
-#define lfs_setmode(L,file,m)   ((void)L, _setmode(_fileno(file), m))
-#define STAT_STRUCT struct _stati64
+ #ifdef __BORLANDC__
+  #define lfs_setmode(L,file,m)   ((void)L, setmode(_fileno(file), m))
+  #define STAT_STRUCT struct stati64
+ #else
+  #define lfs_setmode(L,file,m)   ((void)L, _setmode(_fileno(file), m))
+  #define STAT_STRUCT struct _stati64
+ #endif
 #define STAT_FUNC _stati64
 #else
 #define _O_TEXT               0
 #define _O_BINARY             0
 #define lfs_setmode(L,file,m)   ((void)((void)file,m),  \
 		 luaL_error(L, LUA_QL("setmode") " not supported on this platform"), -1)
-#ifdef HAVE_STAT64
-#define STAT_STRUCT struct stat64
-#define STAT_FUNC stat64
-#define LSTAT_FUNC lstat64
-#else
 #define STAT_STRUCT struct stat
 #define STAT_FUNC stat
 #define LSTAT_FUNC lstat
-#endif
 #endif
 
 /*
@@ -173,7 +184,11 @@ static int _file_lock (lua_State *L, FILE *fh, const char *mode, const long star
 		len = ftell (fh);
 	}
 	fseek (fh, start, SEEK_SET);
+#ifdef __BORLANDC__
+	code = locking (fileno(fh), lkmode, len);
+#else
 	code = _locking (fileno(fh), lkmode, len);
+#endif
 #else
 	struct flock f;
 	switch (*mode) {
@@ -656,7 +671,7 @@ static void set_info (lua_State *L) {
 	lua_pushliteral (L, "LuaFileSystem is a Lua library developed to complement the set of functions related to file systems offered by the standard Lua distribution");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_VERSION");
-	lua_pushliteral (L, "LuaFileSystem 1.4.1");
+	lua_pushliteral (L, "LuaFileSystem 1.4.2");
 	lua_settable (L, -3);
 }
 
