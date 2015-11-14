@@ -1,8 +1,8 @@
 package = "LuaFileSystem"
-version = "1.4.0-1"
+version = "1.4.0-2"
 -- LuaDist source
 source = {
-  tag = "1.4.0-1",
+  tag = "1.4.0-2",
   url = "git://github.com/ld-test/luafilesystem.git"
 }
 -- source = {
@@ -29,5 +29,12 @@ build = {
    },
    install_variables = {
       LUA_LIBDIR = "$(LIBDIR)"
+   },
+   platforms = {
+      win32 = {
+         variables = {
+            LUA_LIB = "$(LUA_LIBDIR)/lua5.1.lib"
+         }
+      }
    }
 }
