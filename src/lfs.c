@@ -56,20 +56,17 @@
 #include <utime.h>
 #endif
 
-#define LUA_COMPAT_ALL
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+
 #include "lfs.h"
 
-/*
- * ** compatibility with Lua 5.2
- * */
-#if (LUA_VERSION_NUM == 502)
-#undef luaL_register
-#define luaL_register(L,n,f) \
-                { if ((n) == NULL) luaL_setfuncs(L,f,0); else luaL_newlib(L,f); }
+#define LFS_VERSION "1.6.2"
+#define LFS_LIBNAME "lfs"
 
+#if LUA_VERSION_NUM < 502
+#  define luaL_newlib(L,l) (lua_newtable(L), luaL_register(L,NULL,l))
 #endif
 
 /* Define 'strerror' for systems that do not implement it */
@@ -84,9 +81,11 @@
 #else
 #define getcwd_error    strerror(errno)
   #ifdef _WIN32
-    #define LFS_MAXPATHLEN MAX_PATH // MAX_PATH seems to be 260. Seems kind of small. Is there a better one?
+	 /* MAX_PATH seems to be 260. Seems kind of small. Is there a better one? */
+    #define LFS_MAXPATHLEN MAX_PATH
   #else
-    #include <sys/param.h> // for MAXPATHLEN
+	/* For MAXPATHLEN: */
+    #include <sys/param.h>
     #define LFS_MAXPATHLEN MAXPATHLEN
   #endif
 #endif
@@ -117,7 +116,7 @@ typedef struct dir_data {
 #else
 #define _O_TEXT               0
 #define _O_BINARY             0
-#define lfs_setmode(L,file,m)   0
+#define lfs_setmode(L,file,m)   ((void)L, (void)file, (void)m, 0)
 #define STAT_STRUCT struct stat
 #define STAT_FUNC stat
 #define LSTAT_FUNC lstat
@@ -169,7 +168,7 @@ static int change_dir (lua_State *L) {
 */
 static int get_dir (lua_State *L) {
   char *path;
-  // Passing (NULL, 0) is not guaranteed to work. Use a temp buffer and size instead.
+  /* Passing (NULL, 0) is not guaranteed to work. Use a temp buffer and size instead. */
   char buf[LFS_MAXPATHLEN];
   if ((path = getcwd(buf, LFS_MAXPATHLEN)) == NULL) {
     lua_pushnil(L);
@@ -856,7 +855,7 @@ static void set_info (lua_State *L) {
         lua_pushliteral (L, "LuaFileSystem is a Lua library developed to complement the set of functions related to file systems offered by the standard Lua distribution");
         lua_settable (L, -3);
         lua_pushliteral (L, "_VERSION");
-        lua_pushliteral (L, "LuaFileSystem 1.6.0");
+        lua_pushliteral (L, "LuaFileSystem "LFS_VERSION);
         lua_settable (L, -3);
 }
 
@@ -881,7 +880,9 @@ static const struct luaL_Reg fslib[] = {
 int luaopen_lfs (lua_State *L) {
         dir_create_meta (L);
         lock_create_meta (L);
-        luaL_register (L, "lfs", fslib);
+        luaL_newlib (L, fslib);
+        lua_pushvalue(L, -1);
+        lua_setglobal(L, LFS_LIBNAME);
         set_info (L);
         return 1;
 }
