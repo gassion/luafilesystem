@@ -9,6 +9,7 @@
 **   lfs.currentdir ()
 **   lfs.dir (path)
 **   lfs.lock (fh, mode)
+**   lfs.lock_dir (path)
 **   lfs.mkdir (path)
 **   lfs.rmdir (path)
 **   lfs.setmode (filepath, mode)
@@ -16,7 +17,7 @@
 **   lfs.touch (filepath [, atime [, mtime]])
 **   lfs.unlock (fh)
 **
-** $Id: lfs.c,v 1.56 2009/02/03 22:05:48 carregal Exp $
+** $Id: lfs.c,v 1.61 2009/07/04 02:10:16 mascarenhas Exp $
 */
 
 #ifndef _WIN32
@@ -38,6 +39,7 @@
 
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #include <io.h>
 #include <sys/locking.h>
 #ifdef __BORLANDC__
@@ -84,6 +86,7 @@ typedef struct dir_data {
 #endif
 } dir_data;
 
+#define LOCK_METATABLE "lock metatable"
 
 #ifdef _WIN32
  #ifdef __BORLANDC__
@@ -204,6 +207,79 @@ static int _file_lock (lua_State *L, FILE *fh, const char *mode, const long star
 #endif
 	return (code != -1);
 }
+
+#ifdef _WIN32
+typedef struct lfs_Lock {
+  HANDLE fd;
+} lfs_Lock;
+static int lfs_lock_dir(lua_State *L) {
+  size_t pathl; HANDLE fd;
+  lfs_Lock *lock;
+  char *ln;
+  const char *lockfile = "/lockfile.lfs";
+  const char *path = luaL_checklstring(L, 1, &pathl);
+  ln = (char*)malloc(pathl + strlen(lockfile) + 1);
+  if(!ln) { 
+    lua_pushnil(L); lua_pushstring(L, strerror(errno)); return 2;
+  }
+  strcpy(ln, path); strcat(ln, lockfile);
+  if((fd = CreateFile(ln, GENERIC_WRITE, 0, NULL, CREATE_NEW, 
+	  	FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, NULL)) == INVALID_HANDLE_VALUE) {
+  	int en = GetLastError();
+  	free(ln); lua_pushnil(L);
+  	if(en == ERROR_FILE_EXISTS || en == ERROR_SHARING_VIOLATION)
+  		lua_pushstring(L, "File exists");
+  	else
+		lua_pushstring(L, strerror(en));
+	return 2;
+  }
+  free(ln);
+  lock = (lfs_Lock*)lua_newuserdata(L, sizeof(lfs_Lock));
+  lock->fd = fd;
+  luaL_getmetatable (L, LOCK_METATABLE);
+  lua_setmetatable (L, -2);
+  return 1;
+}
+static int lfs_unlock_dir(lua_State *L) {
+  lfs_Lock *lock = luaL_checkudata(L, 1, LOCK_METATABLE);
+  CloseHandle(lock->fd);
+  return 0;
+}
+#else
+typedef struct lfs_Lock {
+  char *ln;
+} lfs_Lock;
+static int lfs_lock_dir(lua_State *L) {
+  lfs_Lock *lock;
+  size_t pathl;
+  char *ln;
+  const char *lockfile = "/lockfile.lfs";
+  const char *path = luaL_checklstring(L, 1, &pathl);
+  lock = (lfs_Lock*)lua_newuserdata(L, sizeof(lfs_Lock));
+  ln = (char*)malloc(pathl + strlen(lockfile) + 1);
+  if(!ln) { 
+    lua_pushnil(L); lua_pushstring(L, strerror(errno)); return 2;
+  }
+  strcpy(ln, path); strcat(ln, lockfile);
+  if(symlink("lock", ln) == -1) {
+    free(ln); lua_pushnil(L); 
+    lua_pushstring(L, strerror(errno)); return 2;
+  }
+  lock->ln = ln;
+  luaL_getmetatable (L, LOCK_METATABLE);
+  lua_setmetatable (L, -2);
+  return 1;
+}
+static int lfs_unlock_dir(lua_State *L) {
+  lfs_Lock *lock = luaL_checkudata(L, 1, LOCK_METATABLE);
+  if(lock->ln) {
+    unlink(lock->ln);
+    free(lock->ln);
+    lock->ln = NULL;
+  }
+  return 0;
+}
+#endif
 
 #ifdef _WIN32
 static int lfs_g_setmode (lua_State *L, FILE *f, int arg) {
@@ -336,7 +412,7 @@ static int dir_iter (lua_State *L) {
 #else
 	struct dirent *entry;
 #endif
-	dir_data *d = (dir_data *)lua_touserdata (L, lua_upvalueindex (1));
+	dir_data *d = (dir_data *)luaL_checkudata (L, 1, DIR_METATABLE);
 	luaL_argcheck (L, !d->closed, 1, "closed directory");
 #ifdef _WIN32
 	if (d->hFile == 0L) { /* first entry */
@@ -398,7 +474,9 @@ static int dir_close (lua_State *L) {
 */
 static int dir_iter_factory (lua_State *L) {
 	const char *path = luaL_checkstring (L, 1);
-	dir_data *d = (dir_data *) lua_newuserdata (L, sizeof(dir_data));
+	dir_data *d;
+	lua_pushcfunction (L, dir_iter);
+	d = (dir_data *) lua_newuserdata (L, sizeof(dir_data));
 	d->closed = 0;
 #ifdef _WIN32
 	d->hFile = 0L;
@@ -415,8 +493,7 @@ static int dir_iter_factory (lua_State *L) {
 	if (d->dir == NULL)
 		luaL_error (L, "cannot open %s: %s", path, strerror (errno));
 #endif
-	lua_pushcclosure (L, dir_iter, 1);
-	return 1;
+	return 2;
 }
 
 
@@ -426,10 +503,33 @@ static int dir_iter_factory (lua_State *L) {
 static int dir_create_meta (lua_State *L) {
 	luaL_newmetatable (L, DIR_METATABLE);
 	/* set its __gc field */
+	lua_pushstring (L, "__index");
+	lua_newtable(L);
+	lua_pushstring (L, "next");
+	lua_pushcfunction (L, dir_iter);
+	lua_settable(L, -3);
+	lua_pushstring (L, "close");
+	lua_pushcfunction (L, dir_close);
+	lua_settable(L, -3);
+	lua_settable (L, -3);
 	lua_pushstring (L, "__gc");
 	lua_pushcfunction (L, dir_close);
 	lua_settable (L, -3);
+	return 1;
+}
 
+/*
+** Creates lock metatable.
+*/
+static int lock_create_meta (lua_State *L) {
+	luaL_newmetatable (L, LOCK_METATABLE);
+	/* set its __gc field */
+	lua_newtable(L);
+	lua_pushcfunction(L, lfs_unlock_dir);
+	lua_setfield(L, -2, "free");
+	lua_setfield(L, -2, "__index");
+	lua_pushcfunction(L, lfs_unlock_dir);
+	lua_setfield(L, -2, "__gc");
 	return 1;
 }
 
@@ -665,13 +765,13 @@ static int link_info (lua_State *L) {
 */
 static void set_info (lua_State *L) {
 	lua_pushliteral (L, "_COPYRIGHT");
-	lua_pushliteral (L, "Copyright (C) 2003 Kepler Project");
+	lua_pushliteral (L, "Copyright (C) 2003-2009 Kepler Project");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_DESCRIPTION");
 	lua_pushliteral (L, "LuaFileSystem is a Lua library developed to complement the set of functions related to file systems offered by the standard Lua distribution");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_VERSION");
-	lua_pushliteral (L, "LuaFileSystem 1.4.2");
+	lua_pushliteral (L, "LuaFileSystem 1.5.0");
 	lua_settable (L, -3);
 }
 
@@ -688,11 +788,13 @@ static const struct luaL_reg fslib[] = {
 	{"setmode", lfs_f_setmode},
 	{"touch", file_utime},
 	{"unlock", file_unlock},
+	{"lock_dir", lfs_lock_dir},
 	{NULL, NULL},
 };
 
 int luaopen_lfs (lua_State *L) {
 	dir_create_meta (L);
+	lock_create_meta (L);
 	luaL_register (L, "lfs", fslib);
 	set_info (L);
 	return 1;
