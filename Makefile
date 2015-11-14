@@ -1,7 +1,7 @@
-# $Id: Makefile,v 1.30 2007/06/07 01:28:08 tomas Exp $
+# $Id: Makefile,v 1.32 2008/02/11 22:42:21 carregal Exp $
 
 T= lfs
-V= 1.3.0
+V= 1.4.0
 CONFIG= ./config
 
 include $(CONFIG)
@@ -9,15 +9,14 @@ include $(CONFIG)
 SRCS= src/$T.c
 OBJS= src/$T.o
 
-lib: src/$(LIBNAME)
+lib: src/lfs.so
 
-src/$(LIBNAME): $(OBJS)
-	export MACOSX_DEPLOYMENT_TARGET="10.3"; $(CC) $(CFLAGS) $(LIB_OPTION) -o src/$(LIBNAME) $(OBJS)
+src/lfs.so: $(OBJS)
+	export MACOSX_DEPLOYMENT_TARGET="10.3"; $(CC) $(CFLAGS) $(LIB_OPTION) -o src/lfs.so $(OBJS)
 
-install: src/$(LIBNAME)
+install: src/lfs.so
 	mkdir -p $(LUA_LIBDIR)
-	cp src/$(LIBNAME) $(LUA_LIBDIR)
-	cd $(LUA_LIBDIR); ln -f -s $(LIBNAME) $T.so
+	cp src/lfs.so $(LUA_LIBDIR)
 
 clean:
-	rm -f src/$(LIBNAME) $(OBJS)
+	rm -f src/lfs.so $(OBJS)

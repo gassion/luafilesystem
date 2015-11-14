@@ -1,6 +1,6 @@
 /*
 ** LuaFileSystem
-** Copyright Kepler Project 2004-2007 (http://www.keplerproject.org/luafilesystem)
+** Copyright Kepler Project 2003 (http://www.keplerproject.org/luafilesystem)
 **
 ** File system manipulation library.
 ** This library offers these functions:
@@ -11,11 +11,12 @@
 **   lfs.lock (fh, mode)
 **   lfs.mkdir (path)
 **   lfs.rmdir (path)
+**   lfs.setmode (filepath, mode)
 **   lfs.symlinkattributes (filepath [, attributename]) -- thanks to Sam Roberts
 **   lfs.touch (filepath [, atime [, mtime]])
 **   lfs.unlock (fh)
 **
-** $Id: lfs.c,v 1.42 2007/10/26 21:01:07 carregal Exp $
+** $Id: lfs.c,v 1.47 2008/02/11 22:42:21 carregal Exp $
 */
 
 #include <errno.h>
@@ -29,6 +30,7 @@
 #include <io.h>
 #include <sys/locking.h>
 #include <sys/utime.h>
+#include <fcntl.h>
 #else
 #include <unistd.h>
 #include <dirent.h>
@@ -68,6 +70,15 @@ typedef struct dir_data {
 } dir_data;
 
 
+#ifdef _WIN32
+#define lfs_setmode(L,file,m)   ((void)L, _setmode(_fileno(file), m))
+#else
+#define _O_TEXT               0
+#define _O_BINARY             0
+#define lfs_setmode(L,file,m)   ((void)((void)file,m),  \
+		 luaL_error(L, LUA_QL("setmode") " not supported on non Windows platforms"), -1)
+#endif
+
 /*
 ** This function changes the working (current) directory
 */
@@ -90,16 +101,17 @@ static int change_dir (lua_State *L) {
 **  and a string describing the error
 */
 static int get_dir (lua_State *L) {
-	char path[255+2];
-	if (getcwd(path, 255) == NULL) {
-		lua_pushnil(L);
-		lua_pushstring(L, getcwd_error);
-		return 2;
-	}
-	else {
-		lua_pushstring(L, path);
-		return 1;
-	}
+  char *path;
+  if ((path = getcwd(NULL, 0)) == NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, getcwd_error);
+    return 2;
+  }
+  else {
+    lua_pushstring(L, path);
+    free(path);
+    return 1;
+  }
 }
 
 /*
@@ -164,6 +176,36 @@ static int _file_lock (lua_State *L, FILE *fh, const char *mode, const long star
 	return (code != -1);
 }
 
+
+static int lfs_g_setmode (lua_State *L, FILE *f, int arg) {
+  static const int mode[] = {_O_TEXT, _O_BINARY};
+  static const char *const modenames[] = {"text", "binary", NULL};
+  int op = luaL_checkoption(L, arg, NULL, modenames);
+  int res = lfs_setmode(L, f, mode[op]);
+  if (res != -1) {
+    int i;
+    lua_pushboolean(L, 1);
+    for (i = 0; modenames[i] != NULL; i++) {
+      if (mode[i] == res) {
+        lua_pushstring(L, modenames[i]);
+        goto exit;
+      }
+    }
+    lua_pushnil(L);
+  exit:
+    return 2;
+  } else {
+    int en = errno;
+    lua_pushnil(L);
+    lua_pushfstring(L, "%s", strerror(en));
+    lua_pushinteger(L, en);
+    return 3;
+  }
+}
+
+static int lfs_f_setmode(lua_State *L) {
+  return lfs_g_setmode(L, check_file(L, 1, "setmode"), 2);
+}
 
 /*
 ** Locks a file.
@@ -484,6 +526,9 @@ static void push_st_blksize (lua_State *L, struct stat *info) {
 	lua_pushnumber (L, (lua_Number)info->st_blksize);
 }
 #endif
+static void push_invalid (lua_State *L, struct stat *info) {
+  luaL_error(L, "invalid attribute name");
+}
 
 typedef void (*_push_function) (lua_State *L, struct stat *info);
 
@@ -508,7 +553,7 @@ struct _stat_members members[] = {
 	{ "blocks",       push_st_blocks },
 	{ "blksize",      push_st_blksize },
 #endif
-	{ NULL, NULL }
+	{ NULL, push_invalid }
 };
 
 /*
@@ -575,13 +620,13 @@ static int link_info (lua_State *L) {
 */
 static void set_info (lua_State *L) {
 	lua_pushliteral (L, "_COPYRIGHT");
-	lua_pushliteral (L, "Copyright (C) 2003-2007 Kepler Project");
+	lua_pushliteral (L, "Copyright (C) 2003 Kepler Project");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_DESCRIPTION");
 	lua_pushliteral (L, "LuaFileSystem is a Lua library developed to complement the set of functions related to file systems offered by the standard Lua distribution");
 	lua_settable (L, -3);
 	lua_pushliteral (L, "_VERSION");
-	lua_pushliteral (L, "LuaFileSystem 1.3.0");
+	lua_pushliteral (L, "LuaFileSystem 1.4.0");
 	lua_settable (L, -3);
 }
 
@@ -596,6 +641,8 @@ static const struct luaL_reg fslib[] = {
 	{"rmdir", remove_dir},
 #ifndef _WIN32
 	{"symlinkattributes", link_info},
+#else
+    {"setmode", lfs_f_setmode},
 #endif
 	{"touch", file_utime},
 	{"unlock", file_unlock},
