@@ -1,18 +1,14 @@
 package = "LuaFileSystem"
-
-version = "1.5.0-2"
-
+version = "1.5.0-3"
 -- LuaDist source
 source = {
-  tag = "1.5.0-2",
+  tag = "1.5.0-3",
   url = "git://github.com/ld-test/luafilesystem.git"
 }
 -- source = {
---    url = "http://cloud.github.com/downloads/keplerproject/luafilesystem/luafilesystem-1.5.0.tar.gz",
+--    url = "http://cloud.github.com/downloads/keplerproject/luafilesystem/luafilesystem-1.5.0.tar.gz"
 -- }
-
 description = {
-   summary = "File System Library for the Lua Programming Language",
    detailed = [[
       LuaFileSystem is a Lua library developed to complement the set of
       functions related to file systems offered by the standard Lua
@@ -20,15 +16,18 @@ description = {
       underlying directory structure and file attributes.
    ]],
    homepage = "http://www.keplerproject.org/luafilesystem/",
-   license = "MIT"
+   license = "MIT",
+   summary = "File System Library for the Lua Programming Language"
 }
-
 dependencies = {
-   "lua >= 5.1"
+   "lua >= 5.1, < 5.2"
 }
-
 build = {
    type = "module",
-   modules = { lfs = "src/lfs.c" },
-   copy_directories = { "doc", "tests" }
+   modules = {
+      lfs = "src/lfs.c"
+   },
+   copy_directories = {
+      "doc", "tests"
+   }
 }
