@@ -69,7 +69,8 @@ local new_att = assert (lfs.attributes (tmpfile))
 assert (new_att.access == testdate2, "could not set access time")
 assert (new_att.modification == testdate1, "could not set modification time")
 
-if lfs.symlinkattributes then
+local res, err = lfs.symlinkattributes(tmpfile)
+if err ~= "symlinkattributes not supported on this platform" then
     -- Checking symbolic link information (does not work in Windows)
     assert (os.execute ("ln -s "..tmpfile.." _a_link_for_test_"))
     assert (lfs.attributes"_a_link_for_test_".mode == "file")
@@ -80,10 +81,10 @@ end
 if lfs.setmode then
     -- Checking text/binary modes (works only in Windows)
     local f = io.open(tmpfile, "w")
-    local mode = lfs.setmode(f, "binary")
-    assert(mode == "text")
-    mode = lfs.setmode(f, "text")
-    assert(mode == "binary")
+    local result, mode = lfs.setmode(f, "binary")
+    assert((result and mode == "text") or (not result and mode == "setmode not supported on this platform"))
+    result, mode = lfs.setmode(f, "text")
+    assert((result and mode == "binary") or (not result and mode == "setmode not supported on this platform"))
     f:close()
 end
     
